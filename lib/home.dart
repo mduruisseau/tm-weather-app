@@ -12,9 +12,11 @@ class HomeWidget extends StatefulWidget {
 
 class _HomeWidgetState extends State<HomeWidget> {
   double _latitude = 50.6095001;
-  double _longitude = 3.1341309;
+  double _longitude = 3.1337447;
 
   bool isLoading = false;
+  dynamic _data;
+
   WeatherData? _weatherData;
 
   final TextEditingController _latitudeController = TextEditingController();
@@ -25,6 +27,8 @@ class _HomeWidgetState extends State<HomeWidget> {
       isLoading = true;
     });
 
+    await Future.delayed(const Duration(seconds: 1));
+
     Dio dio = Dio();
     try {
       var response = await dio.get(
@@ -33,13 +37,14 @@ class _HomeWidgetState extends State<HomeWidget> {
           'latitude': _latitude,
           'longitude': _longitude,
           'current_weather': true,
-          'daily': ['weathercode', 'temperature_2m_max', 'temperature_2m_min'],
           'timezone': 'Europe/Paris',
+          'daily': ['weathercode', 'temperature_2m_max', 'temperature_2m_min'],
         },
       );
 
       setState(() {
         isLoading = false;
+        _data = response.data;
         _weatherData = WeatherData.fromJson(response.data);
       });
     } catch (e) {
@@ -49,6 +54,21 @@ class _HomeWidgetState extends State<HomeWidget> {
         isLoading = false;
       });
     }
+  }
+
+  Future<Response> _futureWeather() async {
+    await Future.delayed(const Duration(seconds: 1));
+
+    return await Dio().get(
+      'https://api.open-meteo.com/v1/forecast',
+      queryParameters: {
+        'latitude': _latitude,
+        'longitude': _longitude,
+        'current_weather': true,
+        'timezone': 'Europe/Paris',
+        'daily': ['weathercode', 'temperature_2m_max', 'temperature_2m_min'],
+      },
+    );
   }
 
   @override
@@ -73,28 +93,90 @@ class _HomeWidgetState extends State<HomeWidget> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: _buildAppBar(),
-      body: _buildBody(),
+      appBar: AppBar(
+        title: const Text('Weather App'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          children: [
+            _buildSearchWidgets(),
+            const Divider(indent: 8.0),
+            _buildWithFutureBuilder(),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16.0),
+              child: _buildWithoutClasses(),
+            ),
+            const Divider(indent: 8.0),
+            _buildWeatherWidgets(),
+          ],
+        ),
+      ),
     );
   }
 
-  AppBar _buildAppBar() {
-    return AppBar(
-      title: const Text('Weather App'),
-    );
-  }
-
-  Widget _buildBody() {
+  Widget _buildWithFutureBuilder() {
     return Padding(
-      padding: const EdgeInsets.all(8.0),
+      padding: const EdgeInsets.symmetric(vertical: 16.0),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildSearchWidgets(),
-          const Divider(indent: 8.0),
-          _buildWeatherWidgets(),
+          const Text('With FutureBuilder'),
+          FutureBuilder(
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.done) {
+                if (snapshot.hasData) {
+                  return _buildWeatherData(
+                      WeatherData.fromJson(snapshot.data!.data));
+                } else if (snapshot.hasError) {
+                  return _buildError(snapshot.error!);
+                } else {
+                  return const Center(child: CircularProgressIndicator());
+                }
+              } else {
+                return const Center(child: CircularProgressIndicator());
+              }
+            },
+            future: _futureWeather(),
+          ),
+          const Divider(),
         ],
       ),
     );
+  }
+
+  Widget _buildWithoutClasses() {
+    if (isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(
+          color: Colors.red,
+        ),
+      );
+    }
+
+    if (_data == null) {
+      return const Center(child: Text('No data'));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Temperature: ${_data['current_weather']['temperature'].toString()} °C',
+        ),
+        Text(
+          'Wind: ${_data['current_weather']['windspeed'].toString()} km/h',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWeatherData(WeatherData data) {
+    return Text('Current Temperature: ${data.currentWeather?.temperature}');
+  }
+
+  Widget _buildError(Object error) {
+    return Text('Error: $error');
   }
 
   Widget _buildSearchWidgets() {
@@ -122,11 +204,11 @@ class _HomeWidgetState extends State<HomeWidget> {
           ),
         ),
         const VerticalDivider(),
-        IconButton(
-          onPressed: () {
-            _fetchWeatherData();
-          },
-          icon: const Icon(Icons.refresh),
+        Expanded(
+          child: ElevatedButton(
+            onPressed: _fetchWeatherData,
+            child: const Text('Refresh'),
+          ),
         ),
       ],
     );
@@ -135,7 +217,9 @@ class _HomeWidgetState extends State<HomeWidget> {
   Widget _buildWeatherWidgets() {
     if (isLoading) {
       return const Center(
-        child: CircularProgressIndicator(),
+        child: CircularProgressIndicator(
+          color: Colors.green,
+        ),
       );
     }
 
@@ -150,7 +234,7 @@ class _HomeWidgetState extends State<HomeWidget> {
       children: [
         Text(
           "Current weather",
-          style: Theme.of(context).textTheme.headline4,
+          style: Theme.of(context).textTheme.headlineLarge,
         ),
         Padding(
           padding: const EdgeInsets.all(16.0),
@@ -160,13 +244,13 @@ class _HomeWidgetState extends State<HomeWidget> {
               Row(
                 children: [
                   const Text('Temperature: '),
-                  Text('${_weatherData!.currentWeather?.temperature}°C'),
+                  Text('${_weatherData!.currentWeather!.temperature}°C'),
                 ],
               ),
               Row(
                 children: [
                   const Text('Wind Speed: '),
-                  Text('${_weatherData!.currentWeather?.windSpeed}m/s'),
+                  Text('${_weatherData!.currentWeather?.windSpeed}km/h'),
                 ],
               ),
             ],
@@ -176,50 +260,52 @@ class _HomeWidgetState extends State<HomeWidget> {
           thickness: 8.0,
           indent: 16.0,
           endIndent: 16.0,
+          color: Colors.red,
         ),
-        Text(
-          "Daily weather",
-          style: Theme.of(context).textTheme.headline4,
-        ),
-        Row(
-          children: const [
-            Expanded(
-              child: Text('Date'),
-            ),
-            Expanded(
-              child: Text(
-                'Code',
-                textAlign: TextAlign.right,
-              ),
-            ),
-            Expanded(
-              child: Text(
-                'T° min',
-                textAlign: TextAlign.right,
-              ),
-            ),
-            Expanded(
-              child: Text(
-                'T° max',
-                textAlign: TextAlign.right,
-              ),
-            ),
-            Expanded(
-              child: Text(
-                'Detail',
-                textAlign: TextAlign.right,
-              ),
-            ),
-          ],
-        ),
-        const Divider(),
         ..._buildDaily(),
       ],
     );
   }
 
   List<Widget> _buildDaily() {
-    List<Widget> widgets = [];
+    List<Widget> widgets = [
+      Text(
+        "Daily weather",
+        style: Theme.of(context).textTheme.headline4,
+      ),
+      const Row(
+        children: [
+          Expanded(
+            child: Text('Date'),
+          ),
+          Expanded(
+            child: Text(
+              'Code',
+              textAlign: TextAlign.right,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'T° min',
+              textAlign: TextAlign.right,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'T° max',
+              textAlign: TextAlign.right,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'Detail',
+              textAlign: TextAlign.right,
+            ),
+          ),
+        ],
+      ),
+      const Divider(),
+    ];
     WeatherDaily daily = _weatherData!.daily!;
 
     for (var i = 0; i < daily.time.length; i++) {
